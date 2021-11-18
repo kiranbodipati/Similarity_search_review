@@ -185,7 +185,7 @@ def testing_func(image_embedding_array,test_images,k):
 
     for epoch in range(args.epochs):
         print("------------printing results for epoch"+str(epoch)+"------------")
-        for nbits in [2, 4, 8, 12]:
+        for nbits in [2, 4, 6, 8, 10, 12]:
             print("----------printing results for nbits:"+str(nbits)+"---------------")
             # initialize projection object
             projection = randomProjection(nbits,image_embedding_array)
