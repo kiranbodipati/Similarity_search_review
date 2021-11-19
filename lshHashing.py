@@ -3,6 +3,7 @@ import argparse
 from numpy.random.mtrand import rand
 import torch
 import numpy as np
+from torch._C import device
 from autoencoder import ConvDecoder, ConvEncoder
 from sklearn.neighbors import NearestNeighbors
 import torchvision.transforms as T
@@ -14,6 +15,7 @@ from lshash.lshash import LSHash
 from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 import random
+from pathlib import Path
 # %matplotlib inline
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
@@ -21,10 +23,17 @@ parser.add_argument('--epochs', default=3, type=int, help='number of total epoch
 parser.add_argument('--rootdir', default='/Users/abhishekvaidyanathan/Downloads/geological_similarity/', type=str, help='root directory for images')
 parser.add_argument('--testImagePath',default="/Users/abhishekvaidyanathan/Downloads/geological_similarity/schist/ZZ5Z5.jpg",type=str,help='test image path')
 parser.add_argument('--numImages',default=10,type=int,help='geological encoding')
-parser.add_argument('--encoderModelPath',default="geological_encoding.pt",type=str,help='geological encoding')
-parser.add_argument('--embeddingPath',default="geological_embed.npy",type=str,help='test image path')
+parser.add_argument('--encoderModelPath',default="geological_encoding.pt",type=str,help='encoding model path')
+parser.add_argument('--embeddingPath',default="geological_embed.npy",type=str,help='embedding path')
 parser.add_argument('--kNearest',default=10,type=int,help='k nearest')
+parser.add_argument('--resultFilePath',default="./results.csv",type=str,help='file path to save results.')
+parser.add_argument('--nbitsList', nargs='+', type=int,default = [2, 4, 6, 8, 10, 12], help='nbits list')
+parser.add_argument('--encoder',default='convencoder',type=str,help='encoder model')
 args = parser.parse_args()
+
+if args.encoder=='convencoder':
+    encoder = ConvEncoder()
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 def get_image_files(rootdir):
     rootdir = rootdir
@@ -39,17 +48,34 @@ def load_tensor(image_path, device):
     image_tensor = image_tensor.unsqueeze(0)
     return image_tensor
 
-def get_image_embedding_array(image_files):
+def get_image_embedding(image_tensor):
+    with torch.no_grad():
+        image_embedding = encoder(image_tensor).cpu().detach().numpy()
+    flattened_embedding = image_embedding.reshape((image_embedding.shape[0], -1))
+    return flattened_embedding
+
+def get_image_embedding_array(image_files,encoder_model_path,embedding_path):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    encoder = ConvEncoder()
-    image_embedding_array = []
-    for images in image_files:
-            image_tensor = load_tensor(images,device)
-            with torch.no_grad():
-                    image_embedding = encoder(image_tensor).cpu().detach().numpy()
-            flattened_embedding = image_embedding.reshape((image_embedding.shape[0], -1))
-            image_embedding_array.append(flattened_embedding[0])
-    return image_embedding_array
+    embedding_file = Path(embedding_path)
+    encoder_file = Path(encoder_model_path)
+    # encoder = ConvEncoder()
+    if embedding_file.is_file() and encoder_file.is_file():
+        image_embedding_array = []
+        for images in image_files:
+                image_tensor = load_tensor(images,device)
+                # with torch.no_grad():
+                #         image_embedding = encoder(image_tensor).cpu().detach().numpy()
+                # flattened_embedding = image_embedding.reshape((image_embedding.shape[0], -1))
+                flattened_embedding = get_image_embedding(image_tensor)
+                image_embedding_array.append(flattened_embedding[0])
+        return image_embedding_array
+    encoder.load_state_dict(torch.load(encoder_model_path, map_location=device))
+    encoder.eval()
+    encoder.to(device)
+
+    # Loads the embedding
+    embedding = np.load(embedding_path)
+    return embedding
 
 def all_binary(n):
     total = 1 << n
@@ -160,17 +186,20 @@ def get_random_test_images(image_embedding_array):
 
 def get_similarity(test_images,image_embedding_array,k,projection):
     results = {'xq': [], 'wb': []}
-    for test in test_images:
-        top_k = projection.top_k(test, k)
-        considered_images = []
-        for i in top_k:
-            considered_images.append(image_embedding_array[i])
-        cos = cosine_similarity(considered_images, [test])
-        cos = np.mean(cos)
-        results['xq'].append(cos)
-        cos = cosine_similarity(image_embedding_array, [test])
-        cos = np.mean(cos)    
-        results['wb'].append(cos)
+    image_tensor = load_tensor(test_images,device)
+    flattened_embedding = get_image_embedding(image_tensor)
+    test = flattened_embedding[0]
+    # for test in test_images:
+    top_k = projection.top_k(test, k)
+    considered_images = []
+    for i in top_k:
+        considered_images.append(image_embedding_array[i])
+    cos = cosine_similarity(considered_images, [test])
+    cos = np.mean(cos)
+    results['xq'].append(cos)
+    cos = cosine_similarity(image_embedding_array, [test])
+    cos = np.mean(cos)    
+    results['wb'].append(cos)
     print(f"random images: {np.mean(results['xq'])}")
     print(f"all images: {np.mean(results['wb'])}")
     return results
@@ -185,7 +214,7 @@ def testing_func(image_embedding_array,test_images,k):
 
     for epoch in range(args.epochs):
         print("------------printing results for epoch"+str(epoch)+"------------")
-        for nbits in [2, 4, 6, 8, 10, 12]:
+        for nbits in args.nbitsList:
             print("----------printing results for nbits:"+str(nbits)+"---------------")
             # initialize projection object
             projection = randomProjection(nbits,image_embedding_array)
@@ -193,13 +222,15 @@ def testing_func(image_embedding_array,test_images,k):
             for i in range(len(image_embedding_array)-1):
                 projection.hash_vec(image_embedding_array[i])
             # get results from sim_check
-            results = get_similarity(test_images[:num_vecs],image_embedding_array,k,projection)
+            results = get_similarity(test_images,image_embedding_array,k,projection)
             testing = testing.append(pd.DataFrame({
-                'nbits': [nbits]*num_vecs,
+                'epochs' : epoch,
+                'nbits': nbits,
                 'random_images_sim': results['xq']
             }), ignore_index=True)
             print("----------------------------------------------------------------")
         print("------------------------------------------------------------")
+    testing.to_csv(args.resultFilePath,index=False)
     return testing
 
 def main():
@@ -211,9 +242,9 @@ def main():
     k = args.kNearest
 
     image_files = get_image_files(rootdir)
-    image_embedding_array = get_image_embedding_array(image_files)
+    image_embedding_array = get_image_embedding_array(image_files,ENCODER_MODEL_PATH,EMBEDDING_PATH)
     test_images = get_random_test_images(image_embedding_array)
-    testing_df = testing_func(image_embedding_array,test_images,k)
+    testing_df = testing_func(image_embedding_array,TEST_IMAGE_PATH,k)
     return testing_df
 
 if __name__ == "__main__":
