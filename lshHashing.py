@@ -4,7 +4,7 @@ from numpy.random.mtrand import rand
 import torch
 import numpy as np
 from torch._C import device
-from autoencoder import ConvDecoder, ConvEncoder
+from encoderPreprocess.autoencoder import ConvDecoder, ConvEncoder
 from sklearn.neighbors import NearestNeighbors
 import torchvision.transforms as T
 import os
@@ -16,17 +16,17 @@ from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 import random
 from pathlib import Path
+import time
 # %matplotlib inline
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--epochs', default=3, type=int, help='number of total epochs')
 parser.add_argument('--rootdir', default='/Users/abhishekvaidyanathan/Downloads/geological_similarity/', type=str, help='root directory for images')
 parser.add_argument('--testImagePath',default="/Users/abhishekvaidyanathan/Downloads/geological_similarity/schist/ZZ5Z5.jpg",type=str,help='test image path')
 parser.add_argument('--numImages',default=10,type=int,help='geological encoding')
-parser.add_argument('--encoderModelPath',default="geological_encoding.pt",type=str,help='encoding model path')
-parser.add_argument('--embeddingPath',default="geological_embed.npy",type=str,help='embedding path')
-parser.add_argument('--kNearest',default=10,type=int,help='k nearest')
-parser.add_argument('--resultFilePath',default="./results.csv",type=str,help='file path to save results.')
+parser.add_argument('--encoderModelPath',default="./encoders/geological_encoding.pt",type=str,help='encoding model path')
+parser.add_argument('--embeddingPath',default="./encoders/geological_embed.npy",type=str,help='embedding path')
+parser.add_argument('--kNearest', nargs='+', type=int,default = [5, 10, 15, 20, 50, 100], help='k Nearest list')
+parser.add_argument('--resultFilePath',default="./lsh-results/lsh-results.csv",type=str,help='file path to save results.')
 parser.add_argument('--nbitsList', nargs='+', type=int,default = [2, 4, 6, 8, 10, 12], help='nbits list')
 parser.add_argument('--encoder',default='convencoder',type=str,help='encoder model')
 args = parser.parse_args()
@@ -185,12 +185,16 @@ def get_random_test_images(image_embedding_array):
     return random_images
 
 def get_similarity(test_images,image_embedding_array,k,projection):
-    results = {'xq': [], 'wb': []}
+    results = {'xq': [], 'wb': [], 'time':[], 'output_indices': []}
     image_tensor = load_tensor(test_images,device)
     flattened_embedding = get_image_embedding(image_tensor)
     test = flattened_embedding[0]
     # for test in test_images:
+    start_time = time.time()
     top_k = projection.top_k(test, k)
+    end_time = time.time()
+    results['time'].append(end_time-start_time)
+    results['output_indices'] = top_k
     considered_images = []
     for i in top_k:
         considered_images.append(image_embedding_array[i])
@@ -207,15 +211,18 @@ def get_similarity(test_images,image_embedding_array,k,projection):
 def testing_func(image_embedding_array,test_images,k):
     testing = pd.DataFrame({
         'nbits': [],
-        'random_images_sim': []
+        'random_images_sim': [],
+        'time': 0,
+        "output_indices" : [],
+        'number_of_similar_images': 0
     })
 
     num_vecs = 10
 
-    for epoch in range(args.epochs):
-        print("------------printing results for epoch"+str(epoch)+"------------")
+    for k in args.kNearest:
+        print("------------printing results for k nearest images: "+str(k)+"------------")
         for nbits in args.nbitsList:
-            print("----------printing results for nbits:"+str(nbits)+"---------------")
+            print("----------printing results for nbits: "+str(nbits)+"---------------")
             # initialize projection object
             projection = randomProjection(nbits,image_embedding_array)
             # add all our vectors
@@ -224,9 +231,11 @@ def testing_func(image_embedding_array,test_images,k):
             # get results from sim_check
             results = get_similarity(test_images,image_embedding_array,k,projection)
             testing = testing.append(pd.DataFrame({
-                'epochs' : epoch,
                 'nbits': nbits,
-                'random_images_sim': results['xq']
+                'random_images_sim': results['xq'],
+                'time' : results['time'],
+                'output_indices' : [results['output_indices']],
+                'number_of_similar_images': k
             }), ignore_index=True)
             print("----------------------------------------------------------------")
         print("------------------------------------------------------------")
