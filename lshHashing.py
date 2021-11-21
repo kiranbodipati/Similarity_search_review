@@ -22,7 +22,6 @@ import time
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--rootdir', default='/Users/abhishekvaidyanathan/Downloads/geological_similarity/', type=str, help='root directory for images')
 parser.add_argument('--testImagePath',default="/Users/abhishekvaidyanathan/Downloads/geological_similarity/schist/ZZ5Z5.jpg",type=str,help='test image path')
-parser.add_argument('--numImages',default=10,type=int,help='geological encoding')
 parser.add_argument('--encoderModelPath',default="./encoders/geological_encoding.pt",type=str,help='encoding model path')
 parser.add_argument('--embeddingPath',default="./encoders/geological_embed.npy",type=str,help='embedding path')
 parser.add_argument('--kNearest', nargs='+', type=int,default = [5, 10, 15, 20, 50, 100], help='k Nearest list')
@@ -36,16 +35,24 @@ if args.encoder=='convencoder':
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 def get_image_files(rootdir):
-    rootdir = rootdir
-    image_files = []
-    for subdir, dirs, files in os.walk(rootdir):
-        for file in files:
-            image_files.append(os.path.join(subdir, file))
+    image_file_map = Path("./image-files/geological_mapping_data.json")
+    if image_file_map.is_file():
+        with open(image_file_map, 'r', encoding='utf-8') as f:
+            image_files=json.load(f)
+    else:
+        rootdir = rootdir
+        image_files = []
+        for subdir, dirs, files in os.walk(rootdir):
+            for file in files:
+                image_files.append(os.path.join(subdir, file))
     return image_files
 
 def load_tensor(image_path, device):
-    image_tensor = T.ToTensor()(Image.open(image_path))
-    image_tensor = image_tensor.unsqueeze(0)
+    try:
+        image_tensor = T.ToTensor()(Image.open(image_path))
+        image_tensor = image_tensor.unsqueeze(0)
+    except:
+        print(image_path)
     return image_tensor
 
 def get_image_embedding(image_tensor):
@@ -79,7 +86,7 @@ def get_image_embedding_array(image_files,encoder_model_path,embedding_path):
 
 def all_binary(n):
     total = 1 << n
-    print(f"{total} possible combinations")
+    # print(f"{total} possible combinations")
     combinations = []
     for i in range(total):
         # get binary representation of integer
@@ -102,7 +109,7 @@ def randomProjection(nbits,image_embedding_array):
             self.d = d
             # create our hyperplane normal vecs for splitting data
             self.plane_norms = np.random.rand(d, nbits) - .5
-            print(f"Initialized {self.plane_norms.shape[1]} hyperplane normal vectors.")
+            # print(f"Initialized {self.plane_norms.shape[1]} hyperplane normal vectors.")
             # add every possible combination to hashes attribute as numpy array
             self.hashes = all_binary(nbits)
             # and add each as a key to the buckets dictionary
@@ -204,13 +211,14 @@ def get_similarity(test_images,image_embedding_array,k,projection):
     cos = cosine_similarity(image_embedding_array, [test])
     cos = np.mean(cos)    
     results['wb'].append(cos)
-    print(f"random images: {np.mean(results['xq'])}")
-    print(f"all images: {np.mean(results['wb'])}")
+    # print(f"random images: {np.mean(results['xq'])}")
+    # print(f"all images: {np.mean(results['wb'])}")
     return results
 
-def testing_func(image_embedding_array,test_images,k):
+def testing_func(image_embedding_array,images,k):
     testing = pd.DataFrame({
         'nbits': [],
+        'test_images':"dummy_data",
         'random_images_sim': [],
         'time': 0,
         "output_indices" : [],
@@ -219,41 +227,45 @@ def testing_func(image_embedding_array,test_images,k):
 
     num_vecs = 10
 
-    for k in args.kNearest:
-        print("------------printing results for k nearest images: "+str(k)+"------------")
-        for nbits in args.nbitsList:
-            print("----------printing results for nbits: "+str(nbits)+"---------------")
-            # initialize projection object
-            projection = randomProjection(nbits,image_embedding_array)
-            # add all our vectors
-            for i in range(len(image_embedding_array)-1):
-                projection.hash_vec(image_embedding_array[i])
-            # get results from sim_check
-            results = get_similarity(test_images,image_embedding_array,k,projection)
-            testing = testing.append(pd.DataFrame({
-                'nbits': nbits,
-                'random_images_sim': results['xq'],
-                'time' : results['time'],
-                'output_indices' : [results['output_indices']],
-                'number_of_similar_images': k
-            }), ignore_index=True)
-            print("----------------------------------------------------------------")
-        print("------------------------------------------------------------")
-    testing.to_csv(args.resultFilePath,index=False)
+    for test_images in images:
+        for k in args.kNearest:
+            # print("------------printing results for k nearest images: "+str(k)+"------------")
+            for nbits in args.nbitsList:
+                # print("----------printing results for nbits: "+str(nbits)+"---------------")
+                # initialize projection object
+                projection = randomProjection(nbits,image_embedding_array)
+                # add all our vectors
+                for i in range(len(image_embedding_array)-1):
+                    projection.hash_vec(image_embedding_array[i])
+                # get results from sim_check
+                results = get_similarity(test_images,image_embedding_array,k,projection)
+                testing = testing.append(pd.DataFrame({
+                    'nbits': nbits,
+                    'test_images': test_images,
+                    'random_images_sim': results['xq'],
+                    'time' : results['time'],
+                    'output_indices' : [results['output_indices']],
+                    'number_of_similar_images': k
+                }), ignore_index=True)
+                # print("----------------------------------------------------------------")
+            # print("------------------------------------------------------------")
+        testing.to_csv(args.resultFilePath,index=False)
     return testing
 
 def main():
     rootdir = args.rootdir
     TEST_IMAGE_PATH = args.testImagePath
-    NUM_IMAGES = args.numImages
     ENCODER_MODEL_PATH = args.encoderModelPath
     EMBEDDING_PATH = args.embeddingPath
     k = args.kNearest
 
+    test_images = pd.read_csv("/Users/abhishekvaidyanathan/Desktop/Similarity_search_review/knn-results/cosine-results.csv")
+    test_image = test_images['testing_image']
+
     image_files = get_image_files(rootdir)
     image_embedding_array = get_image_embedding_array(image_files,ENCODER_MODEL_PATH,EMBEDDING_PATH)
     test_images = get_random_test_images(image_embedding_array)
-    testing_df = testing_func(image_embedding_array,TEST_IMAGE_PATH,k)
+    testing_df = testing_func(image_embedding_array,test_image,k)
     return testing_df
 
 if __name__ == "__main__":
