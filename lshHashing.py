@@ -4,7 +4,7 @@ from numpy.random.mtrand import rand
 import torch
 import numpy as np
 from torch._C import device
-from autoencoder import ConvDecoder, ConvEncoder
+from encoderPreprocess.autoencoder import ConvDecoder, ConvEncoder
 from sklearn.neighbors import NearestNeighbors
 import torchvision.transforms as T
 import os
