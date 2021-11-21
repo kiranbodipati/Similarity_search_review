@@ -22,5 +22,5 @@ class SiameseNetworkDataset(Dataset):
             img0 = self.transform(img0)
             img1 = self.transform(img1)
         
-        # return img0, img1 , torch.from_numpy(np.array([row['label']],dtype=np.float32))
-        return img0, img1, row['label']
+        return img0, img1 , torch.from_numpy(np.array([row['label']],dtype=np.float32))
+        # return img0, img1, row['label']
