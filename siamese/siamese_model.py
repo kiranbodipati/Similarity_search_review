@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class SiameseNetwork(nn.Module):
-    def __init__(self, img_dims):
+    def __init__(self, img_dims, emb_size=50):
         super(SiameseNetwork, self).__init__()
         self.cnn1 = nn.Sequential(
             nn.ReflectionPad2d(1),
@@ -31,7 +31,7 @@ class SiameseNetwork(nn.Module):
             nn.Linear(500, 200),
             nn.ReLU(inplace=True),
 
-            nn.Linear(200, 50)
+            nn.Linear(200, emb_size)
         )
 
     def get_flattened_size(self, img_dims):
