@@ -1,3 +1,6 @@
+'''
+importing necessary libraries
+'''
 import torch
 import numpy as np
 from encoderPreprocess.autoencoder import ConvDecoder, ConvEncoder
@@ -12,8 +15,16 @@ import time
 import random
 import argparse
 
+
+'''
+setting a random seed to regenerate same results
+'''
 random.seed(10)
 
+
+'''
+Getting arguments from user input
+'''
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--imagesFilePath',default="./image-files/geological_mapping_data.json",type=str,help='image path files')
 parser.add_argument('--resultFilePath',default="./knn-results/results.csv",type=str,help='file path to save results.')
@@ -25,7 +36,7 @@ parser.add_argument('--embeddingPath',default="./encoders/geological_embed.npy",
 args = parser.parse_args()
 
 TEST_IMAGE_PATH = "/Users/abhishekvaidyanathan/Downloads/geological_similarity/schist/ZZ5Z5.jpg"
-NUM_IMAGES = args.kNearest
+K_IMAGES = args.kNearest
 ENCODER_MODEL_PATH = args.encoderModelPath
 EMBEDDING_PATH = args.embeddingPath
 
@@ -36,14 +47,19 @@ encoder.eval()
 encoder.to(device)
 embedding = np.load(EMBEDDING_PATH)
 
-def load_image_tensor(image_path, device):
-    image_tensor = T.ToTensor()(Image.open(image_path))
-    image_tensor = image_tensor.unsqueeze(0)
-    #print(image_tensor.shape)
-    # input_images = image_tensor.to(device)
-    return image_tensor
+def convert_image_to_tensor(image_path):
+    '''
+    Given an image file path, loads the image into a tensor and returns the image tensor
+    '''
+    tensor= T.ToTensor()(Image.open(image_path))
+    tensor = tensor.unsqueeze(0)
+    return tensor
 
 def load_images():
+    '''
+    reads all the image file paths stored in ./image-files/geological_mapping_data.json or any other user inputted file path, and stores them into a list
+    returns list of all image file paths
+    '''
     image_paths=[]
     # with open("geological_map.json", 'r', encoding='utf-8') as f:
     #     image_paths=json.load(f)
@@ -52,9 +68,17 @@ def load_images():
     print(len(image_paths))
     return image_paths
 
-def compute_similar_images(image_path, num_images, embedding, device):
-    image_tensor = load_image_tensor(image_path, device)
+def find_similar_images(image_path, k, embedding, device):
+    '''
+    finds the K nearest neighbours given an image path, embeddings, and K
+    returns the indices list of the K nearest neighbours and the testing time taken
+    '''
+    image_tensor = convert_image_to_tensor(image_path, device)
     # image_tensor = image_tensor.to(device)
+
+
+    knn = NearestNeighbors(n_neighbors=k, metric="euclidean")
+    knn.fit(embedding)
 
     with torch.no_grad():
         image_embedding = encoder(image_tensor).cpu().detach().numpy()
@@ -64,8 +88,6 @@ def compute_similar_images(image_path, num_images, embedding, device):
     flattened_embedding = image_embedding.reshape((image_embedding.shape[0], -1))
     #print(flattened_embedding.shape)
 
-    knn = NearestNeighbors(n_neighbors=num_images, metric="euclidean")
-    knn.fit(embedding)
     start_time=time.time()
     _, indices = knn.kneighbors(flattened_embedding)
     end_time=time.time()
@@ -76,30 +98,38 @@ def compute_similar_images(image_path, num_images, embedding, device):
     #print(indices_list)
     return indices_list,time_taken
 
-def plot_similar_images(image_paths,indices_list):
+def display_similar_images(image_paths,indices_list):
+    '''
+    function to display the k most similar images using matplotlib
+    '''
     indices = indices_list[0]
     print("total indices: ", len(indices))
     print(indices_list)
     for index in indices:
-        # img_name = str(index - 1) + ".jpg"
-        # print(img_name)
         img_path = image_paths[index]
         print(img_path)
         img = Image.open(img_path).convert("RGB")
+        #display image using matplotlib
         plt.imshow(img)
         plt.show()
 
-def test_method(test_img_path,file_name):
+def test_method(test_img_path):
+    '''
+    Test method that calls find_similar_images for a single image, given the image path of this image
+    Wraps around find_similar_images(...) function and can be used for writing results to file
+    '''
     test_img = Image.open(test_img_path).convert("RGB")
     # plt.imshow(test_img)
     # plt.show()
-    indices_list,time_taken = compute_similar_images(test_img_path, NUM_IMAGES, embedding, device)
+    indices_list,time_taken = find_similar_images(test_img_path, K_IMAGES, embedding, device)
     # write_to_file(test_img_path,indices_list,file_name)
-    #plot_similar_images(indices_list)
     # testing_times.append(time_taken)
     return time_taken,indices_list
 
 def test(image_paths):
+    '''
+    tests 100 random images and writes their results to a csv file
+    '''
     testing_images=[]
     testing = pd.DataFrame({
             'testing_image': "dummy_data",
