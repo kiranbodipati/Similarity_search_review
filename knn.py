@@ -26,7 +26,7 @@ random.seed(10)
 Getting arguments from user input
 '''
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--imagesFilePath',default="./image-files/geological_mapping_data.json",type=str,help='image path files')
+parser.add_argument('--imagesFilePath',default="./image-files/geological_map.json",type=str,help='image path files')
 parser.add_argument('--resultFilePath',default="./knn-results/results.csv",type=str,help='file path to save results.')
 parser.add_argument('--resultFilePathJson',default="./knn-results/results.json",type=str,help='file path to save results.')
 parser.add_argument('--kNearest',default=10,type=int,help='top k images')
@@ -35,7 +35,7 @@ parser.add_argument('--embeddingPath',default="./encoders/geological_embed.npy",
 
 args = parser.parse_args()
 
-TEST_IMAGE_PATH = "/Users/abhishekvaidyanathan/Downloads/geological_similarity/schist/ZZ5Z5.jpg"
+TEST_IMAGE_PATH = "geological_similarity/andesite/0A5NL.jpg"
 K_IMAGES = args.kNearest
 ENCODER_MODEL_PATH = args.encoderModelPath
 EMBEDDING_PATH = args.embeddingPath
